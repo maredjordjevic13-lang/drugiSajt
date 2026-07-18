@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NBA Aukcija</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="page-header">
+        <button id="nba-button" class="primary-button">Učitaj listu igrača</button>
+        <div class="player-info">
+          <span class="label">Trenutni igrač:</span>
+          <strong id="current-player-name">Klikni dugme</strong>
+        </div>
+        <div class="player-info">
+          <span class="label">Najveći bid:</span>
+          <strong id="current-max-bid">0</strong>
+        </div>
+      </header>
+
+      <div class="player-info" style="margin: 1rem 0; gap: 0.25rem;">
+        <span class="label">Status:</span>
+        <strong id="status-text">Čekam listu igrača.</strong>
+      </div>
+
+      <main class="split-sections">
+        <section class="bid-card" id="user-card-1">
+          <div class="card-header">
+            <span class="section-title">User 1 budžet</span>
+            <strong id="budget-1">50</strong>
+          </div>
+          <div class="card-body">
+            <label for="investment-1">Ponuda</label>
+            <input id="investment-1" type="number" min="0" placeholder="Unesite iznos" />
+            <div class="actions">
+              <button class="secondary-button" id="bid-1">Ponudi</button>
+              <button class="secondary-button" id="pass-1">Odustani</button>
+            </div>
+          </div>
+          <div class="purchased-players">
+            <div class="section-title">Roster</div>
+            <ul id="roster-1"></ul>
+          </div>
+        </section>
+
+        <section class="bid-card" id="user-card-2">
+          <div class="card-header">
+            <span class="section-title">User 2 budžet</span>
+            <strong id="budget-2">50</strong>
+          </div>
+          <div class="card-body">
+            <label for="investment-2">Ponuda</label>
+            <input id="investment-2" type="number" min="0" placeholder="Unesite iznos" />
+            <div class="actions">
+              <button class="secondary-button" id="bid-2">Ponudi</button>
+              <button class="secondary-button" id="pass-2">Odustani</button>
+            </div>
+          </div>
+          <div class="purchased-players">
+            <div class="section-title">Roster</div>
+            <ul id="roster-2"></ul>
+          </div>
+        </section>
+      </main>
+
+      <pre id="ai-result" class="ai-output"></pre>
+    </div>
+
+    <script>
+      const listaIgraca = [];
+      let currentIndex = 0;
+      let maxBid = 0;
+      let currentHighBidder = null;
+      const budgets = [50, 50];
+      const rosters = [[], []];
+
+      const elements = {
+        currentPlayerName: document.getElementById('current-player-name'),
+        currentMaxBid: document.getElementById('current-max-bid'),
+        statusText: document.getElementById('status-text'),
+        aiResult: document.getElementById('ai-result'),
+        budget1: document.getElementById('budget-1'),
+        budget2: document.getElementById('budget-2'),
+        roster1: document.getElementById('roster-1'),
+        roster2: document.getElementById('roster-2'),
+        input1: document.getElementById('investment-1'),
+        input2: document.getElementById('investment-2'),
+      };
+
+      function updateUi() {
+        const hasPlayers = currentIndex < listaIgraca.length;
+        elements.currentPlayerName.textContent = hasPlayers ? listaIgraca[currentIndex] : 'Nema više igrača';
+        elements.currentMaxBid.textContent = maxBid;
+        elements.budget1.textContent = budgets[0];
+        elements.budget2.textContent = budgets[1];
+        elements.statusText.textContent = hasPlayers
+          ? currentHighBidder === null
+            ? 'Unesite ponudu za trenutnog igrača.'
+            : `Poslednja ponuda: User ${currentHighBidder} sa ${maxBid}`
+          : 'Lista je gotova.';
+
+        elements.roster1.innerHTML = rosters[0].map((player) => `<li>${player}</li>`).join('') || '<li>Još nema igrača</li>';
+        elements.roster2.innerHTML = rosters[1].map((player) => `<li>${player}</li>`).join('') || '<li>Još nema igrača</li>';
+
+        const isDisabled = !hasPlayers;
+        document.getElementById('bid-1').disabled = isDisabled;
+        document.getElementById('bid-2').disabled = isDisabled;
+        document.getElementById('pass-1').disabled = isDisabled;
+        document.getElementById('pass-2').disabled = isDisabled;
+      }
+
+      function showMessage(message) {
+        elements.statusText.textContent = message;
+      }
+
+      function validateBid(userIndex, bidValue) {
+        if (!Number.isFinite(bidValue) || bidValue <= 0) {
+          showMessage('Unesite validan iznos veći od 0.');
+          return false;
+        }
+        if (bidValue <= maxBid) {
+          showMessage(`Ponuda mora biti veća od trenutnog najvećeg bida (${maxBid}).`);
+          return false;
+        }
+        if (bidValue > budgets[userIndex]) {
+          showMessage(`Ne možete ponuditi više od vašeg budžeta (${budgets[userIndex]}).`);
+          return false;
+        }
+        return true;
+      }
+
+      function placeBid(userIndex) {
+        const input = userIndex === 0 ? elements.input1 : elements.input2;
+        const value = Number(input.value);
+        if (!validateBid(userIndex, value)) {
+          return;
+        }
+        maxBid = value;
+        currentHighBidder = userIndex + 1;
+        input.value = '';
+        showMessage(`User ${currentHighBidder} je vodio sa ${maxBid}.`);
+        updateUi();
+      }
+
+      function settleAuction(passingUserIndex) {
+        if (currentHighBidder === null) {
+          showMessage('Ne može se završiti aukcija bez ponude. Neka barem jedan user da ponudu.');
+          return;
+        }
+        const winnerIndex = passingUserIndex === 0 ? 1 : 0;
+        if (budgetIsInsufficient(winnerIndex)) {
+          showMessage(`User ${winnerIndex + 1} nema dovoljno budžeta za trenutni bid.`);
+          return;
+        }
+
+        rosters[winnerIndex].push(listaIgraca[currentIndex]);
+        budgets[winnerIndex] -= maxBid;
+        showMessage(`User ${winnerIndex + 1} pobedio je igrača ${listaIgraca[currentIndex]} za ${maxBid}.`);
+        currentIndex += 1;
+        maxBid = 0;
+        currentHighBidder = null;
+        updateUi();
+      }
+
+      function budgetIsInsufficient(userIndex) {
+        return budgets[userIndex] < maxBid;
+      }
+
+      async function loadPlayerList() {
+        showMessage('Učitavanje igrača...');
+        try {
+          const response = await fetch('/api/nvidia');
+          const data = await response.json();
+          elements.aiResult.textContent = JSON.stringify(data, null, 2);
+          let players = [];
+          if (Array.isArray(data)) {
+            players = data;
+          } else if (typeof data === 'object' && data !== null) {
+            if (Array.isArray(data.players)) {
+              players = data.players;
+            } else if (typeof data.raw_response === 'string') {
+              players = parsePlayersFromString(data.raw_response);
+            } else {
+              const extracted = extractJsonArrayFromString(JSON.stringify(data));
+              players = extracted;
+            }
+          }
+
+          listaIgraca.length = 0;
+          listaIgraca.push(...players.map(String));
+          currentIndex = 0;
+          maxBid = 0;
+          currentHighBidder = null;
+          showMessage(listaIgraca.length > 0 ? 'Lista učitana. Počnite aukciju.' : 'AI nije poslao listu igrača.');
+          updateUi();
+        } catch (error) {
+          console.error('AI request failed:', error);
+          elements.aiResult.textContent = 'AI request failed: ' + error;
+          showMessage('Greška pri učitavanju liste igrača.');
+        }
+      }
+
+      function extractJsonArrayFromString(value) {
+        const match = value.match(/\[(?:[^\[\]]|\[(?:[^\[\]]*?)\])*\]/s);
+        if (!match) {
+          return [];
+        }
+        try {
+          const parsed = JSON.parse(match[0]);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function parsePlayersFromString(text) {
+        try {
+          const parsed = JSON.parse(text);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return extractJsonArrayFromString(text);
+        }
+      }
+
+      document.getElementById('nba-button').addEventListener('click', loadPlayerList);
+      document.getElementById('bid-1').addEventListener('click', () => placeBid(0));
+      document.getElementById('bid-2').addEventListener('click', () => placeBid(1));
+      document.getElementById('pass-1').addEventListener('click', () => settleAuction(0));
+      document.getElementById('pass-2').addEventListener('click', () => settleAuction(1));
+
+      updateUi();
+    </script>
+  </body>
+</html>
